@@ -1,0 +1,884 @@
+---
+title: "Short view of Kaggle ML & DS Survey 2018"
+author: "pchlq82"
+date: "`r Sys.Date()`"
+output: 
+    html_document:
+          toc: true
+          code_folding: hide
+          theme: journal
+          number_sections: true
+          highlight: kate
+---
+
+
+```{r "chunk-options", include=FALSE}
+knitr::opts_chunk$set(
+    echo = TRUE,
+    message = FALSE,
+    warning = FALSE,
+    comment = "#>",
+    collapse = TRUE,
+    results = "markup"
+)
+```
+
+# Introduction
+
+Since [last](https://www.kaggle.com/kaggle/kaggle-survey-2017) year Kaggle has been organizing annual Machine Learning and Data Science Survey.  This year, the [Servey](https://www.kaggle.com/kaggle/kaggle-survey-2018) has been presented by almost 24K respondents, which is 49% more than contained the previous one. 
+In this short story we are partly interpreting these surveys by analyzing and comparing some features.
+
+
+# Data preparation
+
+## Loading the packages
+```{r "Loading packages", message = FALSE, warning = FALSE}
+library(dplyr)
+library(data.table)
+library(stringr)
+library(tibble)
+library(forcats)
+library(purrr)
+library(countrycode)
+library(highcharter)
+library(tidytext)
+library(SnowballC)
+library(wordcloud2)
+library(ggplot2)
+library(gridExtra)
+library(tidyselect)
+library(janitor)
+library(plotrix)
+library(ggpubr)
+library(FactoMineR)
+library(factoextra)
+library(networkD3)
+library(alluvial)
+library(treemap)
+```
+
+## Loading the datas
+```{r "Loading the datas"}
+# survey 2018
+mult <- as.tibble(fread(str_c('~/kaggle/kaggle-survey-2018/multipleChoiceResponses.csv'), skip = 1, 
+                        stringsAsFactors = TRUE))
+free <- as.tibble(fread(str_c('~/kaggle/kaggle-survey-2018/freeFormResponses.csv'), skip = 1))
+
+# survey 2017
+mult_old <- as.tibble(fread(str_c('~/kaggle/kaggle-survey-2017/multipleChoiceResponses.csv'),
+                            stringsAsFactors = TRUE))
+#free_old <- as.tibble(fread(str_c('~/kaggle/kaggle-survey-2017/freeFormResponses.csv')))
+
+
+```
+
+
+## Additional functins
+```{r "Additional functions"}
+
+#' @title function for splitting elements by pattern
+#' @param data the dataframe that contains var_names
+#' @param var_names the object type of vector
+#' @param split_by the pattern for splitting
+#' @return unique part vector of splitting elements 
+colnames_split_2 <- function(data, var_names, split_by){
+  start_from = var_names %>% 
+    str_split(split_by) %>% 
+    lapply(function(x) x[1L]) %>% 
+    unlist() %>% 
+    unique()
+  start_from %>% 
+    lapply(function(w) vars_select(names(data), starts_with(eval(w))) %>% 
+             str_split(split_by) %>% 
+             lapply(function(x) x[2L]) %>% 
+             unlist())
+}  
+```
+
+
+## Processing data
+```{r "Processing data"}
+
+# getting words from colnames for wordcloud 
+vec_of_names <- map( c(colnames(mult), colnames(free)), as.tibble ) %>% 
+                   do.call(rbind, .)
+
+num <- tibble(word = as.character(1:50))
+
+wordCloud <- vec_of_names %>%
+    unnest_tokens(word, value) %>%
+    anti_join(stop_words, by = "word") %>%
+    anti_join(num, by = "word")
+
+# deleting constant columns
+has_no_answer <- mult %>% 
+  select_if(~ length(unique(.)) == 1L) %>% names()
+mult %<>% # 23859 x 393
+  select_if(~ length(unique(.)) > 1L)
+
+# deleting vars that contain 'text' and are not factors
+var_txt <- mult[vars_select(names(mult), contains('text'))] %>% 
+  select_if(~!is.factor(.x)) %>% 
+  names()
+
+# having a glimpse of their unique values
+# mult[var_txt] %>% apply(., 2, function(x) unique(x))
+
+mult %<>% # 23859 x 359
+  select(-one_of(var_txt))
+
+# selecting vars with 2 levels, over 2 levels and numeric ones 
+mult <- clean_names(mult)
+
+vars_2lev <- mult %>% 
+  select_if(~ nlevels(.) == 2) %>% 
+  names() # 314
+
+vars_over2lev <- mult %>% 
+  select_if(~ nlevels(.) > 2) %>% 
+  names() # 31
+
+vars_num <- mult %>% 
+  select_if(~!is.factor(.)) %>% 
+  names() # 14
+
+# colnames_split_2(data=mult, var_names = vars_2lev, split_by = 'choice_')
+# There are 12 elements don't splittng by 'choice_'. 
+# Let's splitting by 'apply_' each ones.
+
+vars_not_split_by_choice <- vars_2lev %>% 
+  lapply(function(x) x %>% 
+           str_split('choice_') %>% 
+           unlist()) %>% 
+  lapply(function(x) x[1L]) %>% 
+  unlist() %>% 
+  table() %>%  
+  .[.==1L] %>% 
+  names()
+
+
+# split by 'apply_' ==
+answer_split_by_apply <- colnames_split_2(data = mult, 
+                                          var_names = vars_not_split_by_choice, 
+                                          split_by = 'apply_')
+
+names_split_by_apply <- c('circumstances.explore.model.insights', 
+                          'difficult.fair.algorithm')
+
+# split by 'choice_' ==
+answer_split_by_choice <- colnames_split_2(data = mult, 
+                                           var_names = setdiff(vars_2lev, vars_not_split_by_choice), 
+                                           split_by = 'choice_')
+
+nm_used <- c('ide', 'hosted.notebooks', 'cloud.service', 'lang', 'ml', 'plt', 'cloud.comp.products',
+            'ml.products', 'relational.db.products', 'bd/analytics.products')
+
+new_nms <- paste(rep('used', length(nm_used)), nm_used, sep = '.')
+names_split_by_choice <- c('important.role', new_nms, 'most.interact.dtype', 'find.datasets', 
+                          'learn.platform', 'favorite.media.report.ds',
+                          'mod.metric', 'explaining.mod.method', 'tools.reproduce', 
+                          'barriers.reuse/reproduse')
+
+# split vars_num by '100_' ==
+vars_clean <- vars_num[-1] # delete 'duration_in_seconds' column
+answer_vars_num <- colnames_split_2(data= mult, var_names = vars_clean, split_by = '100_')
+names_vars_num <- c('percent.devoted.time', 'percent.training')
+
+# pasting new colnames
+new_colnames_split_by_choice <- pmap(list(names_split_by_choice, '_', answer_split_by_choice), paste0) %>% 
+  unlist()
+new_colnames_split_by_apply <- pmap(list(names_split_by_apply, '_', answer_split_by_apply), paste0) %>% 
+  unlist()
+new_colnames_vars_num <- pmap(list(names_vars_num, '_', answer_vars_num), paste0) %>% 
+  unlist()
+
+# setting short names for 'vars_over2lev'
+new_colnames_over2lev <- c( 
+          'gender', 'age', 'country', 'edu', 'major', 'role', 'industry', 'experience', 
+          'salary', 'business_in_ml', 'tool_for_analyze', 'spec_lang', 
+          'pr_recommended_lang', 'pr_ml_lib', 'pr_plt', 'percent_timecoding', 
+          'how_long_coding', 'years_using_ml', 'consider_yourself_ds', 'dtype_interacting', 
+          'online_platform_spent_most_time', 'online_vs_taditional_moocs',
+          'online_vs_traditional_bootcamps', 'expertise_academic_vs_project', 
+          'importance_fairness/bias_in_lm_algorithm', 'importance_explain_ml_model',
+          'importance_reproducibility', 'percent_data_proj_unfair_bias_ds/algorithm', 
+          'percent_data_proj_involve_exploring_model_insights', 
+          'methods_for_explaining_dicisions_made_by_ml_models_txt', 
+          'consider_ml_models_black_boxes' )
+
+# the vector of new colnames
+new_colnames <- c(new_colnames_split_by_choice, 
+                 new_colnames_split_by_apply,
+                 new_colnames_vars_num,
+                 new_colnames_over2lev,
+                 'duration_min')
+
+# the vector of old colnames
+old_colnames <- c(setdiff(vars_2lev, vars_not_split_by_choice),
+                 vars_not_split_by_choice, 
+                 vars_num[-1],
+                 vars_over2lev,
+                 vars_num[1])
+
+# rename all 359 vars
+mult  %<>% 
+  rename_at(vars(names(.[old_colnames])), ~new_colnames) %>% 
+  mutate(duration_min = round(duration_min / 60))
+
+```
+
+
+
+# WordCloud
+
+At first let's glance at  titles’ word frequencies.
+
+```{r "WordCloud", fig.width=7,fig.height=5}
+
+wordCloud %>%
+  mutate(word = wordStem(word)) %>%
+  count(word) %>%
+  top_n(30, n) %>%
+  mutate(n = n^.5) %>% 
+  as.tibble() %>% 
+  wordcloud2()
+
+```
+
+
+# Country residence
+
+Residents from more than 56 countries participated in Survey 2018.
+
+```{r "Country residence", fig.width=7,fig.height=5}
+temp <- mult %>%
+  count(country) %>%
+  filter(!(country %in% c("Other", "I do not wish to disclose my location"))) %>%
+  mutate(iso3 = countrycode(country, origin = "country.name", destination = "iso3c"))
+
+highchart() %>%
+  hc_add_series_map(worldgeojson, temp, value = 'n', joinBy = 'iso3') %>%
+  hc_title(text = 'Location of respondents') %>%
+  hc_colorAxis(minColor = "#c3ff3f", maxColor = "#4e6619") %>%
+  hc_tooltip(useHTML = TRUE, headerFormat = "", pointFormat = "{point.country}: {point.n} users")
+```
+
+
+The number of respondents from The United State of America and India is significantly higher than number of respondents from any other country.
+
+```{r fig.width=14,fig.height=11}
+
+mult_old  %<>% 
+  mutate(Country = fct_recode(Country,
+                            USA = "United States",
+                            China = "People 's Republic of China",
+                            China = "Republic of China",
+                            UK = "United Kingdom",
+                            Other = "", 
+                            Other = "Taiwan"))
+
+mult %<>% 
+  mutate(country = fct_recode(country,
+                             USA = "United States of America",
+                             Vietnam = "Viet Nam",
+                             Iran = "Iran, Islamic Republic of...",
+                             UK = "United Kingdom of Great Britain and Northern Ireland",
+                             `Hong Kong` = "Hong Kong (S.A.R.)")) 
+
+
+mult$country <- fct_other(mult$country,
+                         drop = c("Austria", "Morocco",
+                                "I do not wish to disclose my location",
+                                "Republic of Korea","Bangladesh",
+                                "Peru", "Thailand", "Tunisia"))
+
+# reduce values at gender
+mult$gender <- fct_other(mult$gender, keep = c("Male", "Female"))
+
+mult_old$GenderSelect <- fct_other(mult_old$GenderSelect, keep = c("Male", "Female"))
+
+mult_old$GenderSelect <- factor(mult_old$GenderSelect, levels = c("Male", "Female", "Other"))
+mult$gender <- factor(mult$gender, levels = c("Male", "Female", "Other"))
+
+country_order <- mult %>%
+  group_by(country) %>% 
+  summarise(n = n())
+ 
+labs_order <- country_order$country[order(country_order$n)] %>% as.character()
+mult$country <- factor(mult$country, levels = labs_order)
+mult_old$Country <- factor(mult_old$Country, levels = labs_order)
+
+# plot 
+foo_7 <- table(mult_old$Country, mult_old$GenderSelect) %>% matrix(50, 3)
+foo_8 <- table(mult$country, mult$gender) %>% matrix(50, 3)
+
+temp <- pyramid.plot(foo_7, foo_8,
+                     labels = labs_order,
+                     unit = "Count",
+                     lxcol = c("#0074D9","#FF4136","#FFDC00"),
+                     rxcol = c("#0074D9","#FF4136","#FFDC00"),
+                     laxlab = seq(0, 4500, 500),
+                     raxlab = seq(0, 5000, 500),
+                     top.labels = c("2017","Country","2018"),
+                     gap = 510)
+                    
+# put a box around it
+box()
+# give it a title
+mtext("Location of Data Scientists", 3, 2,cex = 1.5)
+# stick in a legend
+legend(par("usr")[1],8, c("Male","Female","Other"),
+       fill = c("#0074D9","#FF4136","#FFDC00"))
+# don't forget to restore the margins and background
+par(mar = temp, bg = "transparent")
+
+```
+
+
+* During the year, the number of respondents from China has increased by more than 200%, moving from 4th to 3rd place, displacing Russia.
+* Also, the number of respondents from Nigeria, Turkey, Japan and Vietnam more than doubled.
+* A decrease has been noted in the number of respondents from Australia, the Philippines and South Korea.
+
+```{r "Pct Change: 2017 vs 2018 (extreme values)", fig.width=13,fig.height=9, warning=FALSE}
+
+foo_8 <- mult %>% 
+  group_by(country) %>% 
+  summarise(cnt = n())
+foo_7 <- mult_old %>% 
+  group_by(country = Country) %>% 
+  summarise(cnt = n())
+
+temp <- left_join(foo_8, foo_7, by = "country") %>%
+        mutate(`%` = round((cnt.x-cnt.y)/cnt.y * 100, 1)) %>% 
+        select(country, `%`) %>% 
+        filter(`%` >= 100 | `%` < 0) %>% 
+        arrange(`%`) %>% 
+        as.data.frame() %>% 
+        droplevels() %>% 
+        # up / down avg flag
+        mutate(type = ifelse(`%` < 0, "down", "up"))
+
+## convert to factor to retain sorted order in plot
+temp$country <- factor(temp$country, levels = temp$country)
+
+theme_set(theme_bw())
+
+# Plot
+ggplot(temp, aes(x = country, y = `%`, label = `%`)) + 
+  geom_point(stat = 'identity', aes(col = type), size=15)  +
+  scale_color_manual(name = "Respondents", 
+                     labels = c("Decreased", "Increased"), 
+                     values = c("up"="#00ba38", "down"="#f8766d")) + 
+  geom_text(color = "black", size = 4) +
+  labs(title = "Dot Plot", 
+       subtitle = "Pct Change: 2017 vs 2018 (extreme values)") + 
+  coord_flip()
+
+```
+
+
+# The age distribution.
+
+The age distribution of survey respondents is shown in the figure below.
+
+* Most respondents are between 25 and 34 years old.
+* During the year, the number of respondents (male & female) under 25 y.o. has doubled.
+* The number of respondents over 35 years old has changed little.
+
+
+```{r "Age structure", fig.width=13,fig.height=7, warning=FALSE}
+
+mult %<>%
+  mutate( age_groups = case_when(
+              age %in% c("18-21", "22-24") ~ "under 25",
+              age %in% c("25-29", "30-34") ~ "25-34",
+              age %in% c("35-39", "40-44") ~ "35-44",
+              age %in% c("45-49", "50-54") ~ "45-54",
+              age %in% c("55-59", "60-69", "70-79",  "80+") ~ "over 55") )
+
+mult_old %<>%
+        mutate( age_groups = case_when(Age <= 24 ~ "under 25",
+                                     Age %in% (25:34) ~ "25-34",
+                                     Age %in% (35:44) ~ "35-44",
+                                     Age %in% (45:54) ~ "45-54",
+                                     Age >= 55 ~ "over 55",
+                                     is.na(Age) ~ "heaven knows") )
+
+labs_order <- c("under 25", "25-34", "35-44", "45-54", "over 55", "heaven knows")
+mult_old$age_groups <- factor(mult_old$age_groups, levels = labs_order)
+mult$age_groups <- factor(mult$age_groups, levels = labs_order)
+
+
+foo_8 <- table(mult$age_groups, mult$gender) %>% matrix(6, 3)
+foo_7 <- table(mult_old$age_groups, mult_old$GenderSelect) %>% matrix(6, 3)
+
+temp <- pyramid.plot(foo_7, foo_8,
+             labels = labs_order,
+             unit="Count",
+             lxcol = c("lightslategray", "orange2", "red"),
+             rxcol = c("lightslategray", "orange2", "red"),
+             laxlab = c(0, 2500, 5000, 8000),
+             raxlab = c(0, 2500, 5000, 8000, 10000),
+             top.labels = c("2017","Groups of ages","2018"),
+             gap = 1500)
+
+# put a box around it
+#box()
+# give it a title
+mtext("Changing age composition", 3, 2,cex = 1.5)
+# stick in a legend
+legend(par("usr")[1],7, c("Male","Female","Other"),
+       fill = c("lightslategray", "orange2", "red"))
+# don't forget to restore the margins and background
+par(mar = temp, bg = "transparent")
+
+```
+
+
+# Undergraduate major and education degree.
+
+* The most popular degrees of education are bachelor and doctor, which principally major in Computer Science, Engineering, Mathematics and Physics.
+
+```{r "Major in education", fig.width=10, fig.height=7, warning=FALSE}
+
+mult %<>% 
+  mutate(edu = fct_recode(edu,
+                          bachelor = "BachelorвЂ™s degree",
+                          doctor = "Doctoral degree",
+                          master = "MasterвЂ™s degree",
+                          professional = "Professional degree",
+            "college without degree" = 
+            "Some college/university study without earning a bachelorвЂ™s degree") )
+
+mult %<>% 
+  mutate(major = fct_recode(major,
+      business = "A business discipline (accounting, economics, finance, etc.)",
+      "computer science" = "Computer science (software engineering, etc.)",
+      engineering = "Engineering (non-computer focused)",
+      IT = "Information technology, networking, or system administration",
+      maths = "Mathematics or statistics",
+      medical = "Medical or life sciences (biology, chemistry, medicine, etc.)",
+      "physics/astronomy" = "Physics or astronomy") )
+
+temp <- mult %>% 
+  filter(edu %in% c("bachelor",
+                    "doctor",
+                    "master",
+                    "professional",
+                    "college without degree") ) %>% 
+  group_by(edu, major) %>% 
+  summarise(cnt = n()) %>% 
+  filter(major %in% c("business",
+                      "computer science",
+                      "engineering",
+                     "IT",
+                     "maths",
+                     "medical",
+                     "physics/astronomy") ) %>%
+  arrange(edu, major) %>% 
+  top_n(n = 3) %>% 
+  droplevels()
+
+temp %<>% mutate_if(is.factor, as.character)  
+temp$edu <- as.character(temp$edu)
+categories_grouped <- temp %>%
+  group_by(name = edu) %>%
+  do(categories = .$major) %>%
+  list_parse()
+
+
+highchart() %>%
+  hc_xAxis(categories = categories_grouped) %>%
+  hc_add_series(data = temp, type = "bar", hcaes(y = cnt, color = major),
+                showInLegend = FALSE) %>% 
+  hc_add_theme(hc_theme_sandsignika())
+
+```
+
+
+# Current role in Industry.
+
+* The most respondets are working in Computers/Technology, Academics/Education and Accounting/Finance industry as Data Scientist, Software Engineer.
+* The most popular role is Data Scientist.
+
+```{r "Current role vs Industry", fig.width=10, fig.height=7, warning=FALSE}
+
+mult %<>% 
+  mutate(industry = fct_recode(industry,
+                              Student = "I am a student",
+                              Other = ""),
+         role     = fct_recode(role, 
+                              Other = "") ) 
+
+
+
+temp <- subset(mult, (industry != "Other" & industry != "Student") & 
+               role != "Other", 
+             select = c(industry, role)) %>% 
+         mutate_if(is.factor, as.character)
+
+df <- table(temp$role, temp$industry) %>% as.data.frame()
+
+ggballoonplot(df, fill = "value")+
+  scale_fill_viridis_c(option = "D")
+
+
+```
+
+
+# Experience and Salary.
+
+From the graphic below, it's clear that:
+
+* The respondents with work expirience up to 1 year most likely receive under $10K of compensation.
+* At the same time in 10 years they may well expect on a salary 10 times more. 
+
+```{r "Experience vs Salary", fig.width=10, fig.height=7, warning=FALSE}
+
+mult$salary %<>% str_replace(",000", "")
+
+mult$salary %<>% fct_other(drop = c("", 
+      "I do not wish to disclose my approximate yearly compensation"))
+
+mult %<>%
+  mutate( salary_group = case_when(
+    salary == "0-10" ~ "under $10K",
+    salary %in% c("10-20", "20-30", "30-40") ~ "10-$40K",
+    salary %in% c("40-50", "50-60", "60-70",
+                  "70-80", "80-90", "90-100") ~ "40-$100K",
+    salary %in% c("100-125", "125-150", "150-200",
+                  "200-250", "250-300", "300-400",
+                  "400-500", "500+") ~ "over $100K"),
+    
+    exp_group = case_when(
+      experience == "0-1" ~ "under 1yr",
+      experience == "1-2" ~ "1-2yrs",
+      experience %in% c("2-3", "3-4") ~ "2-4yrs",
+      experience %in% c("4-5", "5-6") ~ "4-10yrs",
+      experience %in% c("10-15", "15-20", "20-25",
+                        "25-30", "30 +") ~ "over 10yrs"
+    ))
+
+temp <- table(mult$exp_group, mult$salary_group)
+
+res <- CA(temp, graph = FALSE)
+fviz_ca_biplot(res, repel = TRUE)
+
+```
+
+
+# Incorporating ML into industries.
+
+* The Top-3 industries that incorporate ML methods into their business are Computers/Technology, Academics/Education and Accounting/Finance.
+
+```{r "Incorporating ML into industries", fig.width=10, fig.height=7, warning=FALSE}
+
+mult %>%                                                  
+      filter(!(industry %in% c("Other", "Student") |
+                 business_in_ml %in% c("", "I do not know", "don't use ML methods"))) %>% 
+      group_by(industry) %>% 
+      summarise(cnt = n()) %>% 
+      #arrange(desc(cnt)) %>% 
+      mutate_if(is.factor, as.character) %>% 
+  
+  ggplot(aes(x = reorder(industry, -cnt), y= cnt, fill = industry)) +
+  geom_col() +
+  geom_label(aes(label = cnt), position = position_dodge(width = 1)) +
+  labs(x = "Industry", y = "Count") +
+  theme(legend.position = "none", axis.text.x  = element_text(angle=50, hjust=1, vjust=0.9)) +
+  ggtitle("Incorporating ML methods into industries")
+
+```
+
+* Each of these areas are under stage of exploring ML methods or recently started using ML methods. 
+* Accounting/Finance and Computers/Technology also have well established ML methods.
+
+```{r "Stages of incorporation ML methods in Top-3 industries", fig.width=10, fig.height=7, warning=FALSE}
+
+mult %<>% 
+  mutate(business_in_ml = fct_recode(business_in_ml,
+          "don't use ML methods" = "No (we do not use ML methods)",
+          
+          "exploring ML methods" = 
+            "We are exploring ML methods (and may one day put a model into production)",
+          
+          "have well established ML methods" = 
+            "We have well established ML methods (i.e., models in production for more than 2 years)",
+          
+          "recently started using ML methods" = 
+            "We recently started using ML methods (i.e., models in production for less than 2 years)",
+          
+          "using ML methods for generating insights" =
+            "We use ML methods for generating insights (but do not put working models into production)"
+       ))
+
+temp <- mult %>%                                                  
+  filter(!(business_in_ml %in% c("", "I do not know",
+                                 "don't use ML methods"))) %>% 
+  filter(industry %in% c("Computers/Technology", 
+                         "Academics/Education",
+                         "Accounting/Finance")) %>% 
+  group_by(industry, business_in_ml) %>% 
+  summarise(cnt=n()) %>%
+  arrange() %>% 
+  top_n(n=3) %>% 
+  mutate_if(is.factor, as.character) 
+  
+foo_r <- temp %>% 
+  group_by(name = industry) %>%
+  do(categories = .$business_in_ml) %>%
+  list_parse()
+  
+  highchart() %>%
+  hc_xAxis(categories = foo_r) %>%
+  hc_add_series(data = temp, type = "bar", hcaes(y = cnt, color = business_in_ml),
+                showInLegend = FALSE) %>% 
+  hc_add_theme(hc_theme_ggplot2())
+
+```
+
+
+# Important activities at work and tools for data analyzing.
+
+* The most important part of role at work for respondets is Analyze and understand data to influence product or business decisions.
+
+```{r "Important activities at work", fig.width=10, fig.height=7, warning=FALSE}
+
+mult %>% 
+  select(starts_with("important.role")) %>% 
+  mutate_if(is.factor, as.character) %>% 
+  apply(2, function(x) table(x[x != ""]) %>% 
+          as.data.frame()) %>% 
+  unname() %>% 
+  do.call(rbind, .) %>% 
+  setNames(nm = c("Important activities at work", "Count of respondents")) %>% 
+  mutate("Important activities at work" = `Important activities at work` %>% 
+           str_remove(" my")) %>% 
+  
+  ggplot(., aes(x = "", y=`Count of respondents`, fill=`Important activities at work`))+
+    geom_bar(width = 1, stat = "identity")
+  
+
+```
+
+* Over 50% of these respondents use for analysis local or hosted development environments (RStudio, JupyterLab, etc.). 
+```{r "Primary tools use to analyze data", fig.width=10, fig.height=7, warning=FALSE}
+
+temp <- mult %>% 
+  filter(important.role_analyze_and_understand_data_to_influence_product_or_business_decisions != "" &
+           !(tool_for_analyze %in% c("", "Other"))) %>% 
+  group_by(tool_for_analyze) %>% 
+  summarise(cnt=n()) %>% 
+  mutate(`%` = cnt / sum(cnt) * 100) %>% 
+  mutate_if(is.factor, as.character) 
+
+labels <- c("Advanced statistical\n software (SPSS, SAS, etc.)",
+            "Basic statistical software\n (Microsoft Excel, Google Sheets, etc.)",
+            "Business intelligence software\n (Salesforce, Tableau, Spotfire, etc.)",
+            "Cloud-based data software & APIs\n (AWS, GCP, Azure, etc.)",
+            "Local or hosted development\n environments (RStudio, JupyterLab, etc.)")
+
+lbls <- paste(round(temp$`%`, 1),"%",sep="") # add % to labels
+
+pie(temp$cnt,labels = lbls, radius=.7, col=c("brown","#ddaa00","pink","#dd00dd","skyblue"),
+    main="Primary tools use to analyze data")
+legend("bottomleft", labels, cex=0.9,fill=c("brown","#ddaa00","pink","#dd00dd","skyblue"))
+
+```
+
+
+# Programming languages.
+
+## Industry vs Programming language.
+
+* In Top-3 industries the most popular programming language is Python.
+* In Academics/Education and Accounting/Finance areas R is very common.
+
+```{r "Industry vs programming language", fig.width=10, fig.height=7, warning=FALSE}
+
+# Data grouping
+links <- names(mult[c(53:68)]) %>% 
+  lapply(., function(x) 
+    mult %>% 
+      filter(industry %in% c("Accounting/Finance", 
+                             "Academics/Education",
+                             "Computers/Technology")) %>% 
+      group_by(industry, `programming language` = get(x)) %>% 
+      summarise(cnt=n()) %>% 
+      mutate(`%` = cnt / sum(cnt) * 100)
+    ) %>% 
+      lapply(., function(y) filter(y, `programming language` != "")) %>% 
+      do.call(bind_rows, .) %>% 
+      arrange(industry, desc(cnt)) %>% 
+      top_n(3) %>% 
+  as.data.frame() %>% 
+  mutate_if(is.factor, as.character)
+
+# Create a node data frame: it lists every entities involved in the flow
+nodes=data.frame(name=c(as.character(links$industry), as.character(links$`programming language`)) %>% unique())
+
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.
+# So we need to reformat it.
+links$IDsource=match(links$industry, nodes$name)-1 
+links$IDtarget=match(links$`programming language`, nodes$name)-1
+
+# Make the Network
+sankeyNetwork(Links = links, Nodes = nodes,
+              Source = "IDsource", Target = "IDtarget", fontSize = 15,
+              Value = "cnt", NodeID = "name", nodeWidth = 20)
+
+```
+
+
+## Industry vs Programming language vs Salary.
+
+* The figure below contains links between Top-11 industries, programming languages and compensation depending on colors.
+
+```{r "Industry vs programming language vs salary", fig.width=10, fig.height=7, warning=FALSE}
+
+ind_top <- mult %>%
+            filter( !(industry %in% c("Other", "Student")) ) %>% 
+            group_by(industry) %>% 
+            summarise(cnt=n()) %>% 
+            top_n(11) %>% 
+            mutate_if(is.factor, as.character) %>% 
+            .$industry 
+
+
+temp <- names(mult[c(53:68)]) %>% 
+  lapply(., function(x) 
+    mult %>% 
+      filter(industry %in% ind_top) %>% 
+      filter( !(is.na(salary_group)) ) %>% 
+      group_by(industry, `programming language` = get(x), salary_group) %>% 
+      summarise(cnt=n())
+  ) %>% 
+  lapply(., function(y) filter(y, `programming language` != "")) %>% 
+  do.call(bind_rows, .) %>% 
+  arrange(industry, desc(cnt)) %>% 
+  #top_n(1) %>% 
+  as.data.frame() %>% 
+  mutate_if(is.factor, as.character) %>% 
+  
+  mutate( industry = industry %>% 
+           strsplit('/') %>% 
+           lapply(function(x) first(x)) %>% unlist() )
+
+
+alluvial( temp[, 1:3], freq = temp$cnt, border = NA,
+          hide = temp$cnt < 10,
+          col = c(ifelse( temp$salary_group == "over $100K", "green", "grey"),
+                  ifelse( temp$salary_group == "under $10K", "red", "grey"),
+                  ifelse( temp$salary_group == "40-$100K", "blue", "grey")),
+          cw = .13,
+          blocks = "bookends" )
+
+```
+
+
+## Recommendations for learning the first programming language.
+
+* Python - the most often recommended programming language to learn first. 
+* For the year, the proportion of those who thinks so has increased. 
+* The number of recomendations R reduced 2 times.
+
+```{r "Recommendation", fig.width=9, fig.height=9, warning=FALSE}
+
+r8 <- mult %>% 
+  mutate(pr_recommended_lang = fct_recode( pr_recommended_lang,
+                                           "C/C++/C#"= "C++",
+                                           Matlab="MATLAB") ) %>% 
+  filter(pr_recommended_lang %in% c("C/C++/C#", "Java", "Matlab", 
+                                    "Python", "R", "Scala", "SQL", "SAS") ) %>% 
+  count(pr_recommended_lang) %>% 
+  mutate(`%_2018` = round(n / sum(n) * 100, 2) ) %>% 
+  mutate_if(is.factor, as.character)
+
+r7 <- mult_old %>% 
+  filter(LanguageRecommendationSelect %in% c("C/C++/C#", "Java", "Matlab", "Python", 
+                                             "R", "Scala", "SQL", "SAS") ) %>% 
+  count(LanguageRecommendationSelect) %>% 
+  mutate(`%_2017` = round(n / sum(n) * 100, 2) ) %>% 
+  mutate_if(is.factor, as.character)
+
+temp <- data.frame(lang = r8$pr_recommended_lang,
+              pct_2018 = r8$`%_2018`,
+              pct_2017 = r7$`%_2017`) %$% .[order(pct_2018, decreasing = TRUE),]
+
+highchart() %>% 
+  hc_xAxis(categories = temp$lang) %>% 
+  hc_add_series(name = "2017, %", data = temp$pct_2017) %>% 
+  hc_add_series(name = "2018, %", data = temp$pct_2018) %>% 
+  hc_chart(type = "column",
+           options3d = list(enabled = TRUE, beta = 15, alpha = 15)) %>% 
+  hc_add_theme(hc_theme_538())
+
+
+```
+
+
+# ML frameworks.
+
+* The most popular ML frameworks are Scikit-Learn, TensorFlow, Keras and randomForest.
+
+```{r "ML frameworks", fig.width=10, fig.height=7, warning=FALSE}
+
+temp <- mult %>% 
+        select(starts_with("used.ml_")) %>% 
+        mutate_if(is.factor, as.character) %>% 
+        apply(2, function(x) table(x[ !(x %in% c("", "None")) ]) %>% 
+                as.data.frame()) %>% 
+        unname() %>% 
+        do.call(rbind, .) %>%
+        mutate(pct = round(Freq / sum(Freq) * 100)) %>% 
+        arrange(desc(pct)) %>% 
+        top_n(10) %>% 
+        rename("ML frameworks" = pct)
+
+treemap(temp,
+        index="Var1",
+        vSize= "ML frameworks",
+        type="index",
+        inflate.labels = TRUE
+)    
+
+```
+
+
+## Programming languages vs ML frameworks
+
+* R fans prefer randomForest.
+
+```{r fig.width=10, fig.height=7, warning=FALSE}
+
+temp <- lapply(names(mult[53:54]), function(y) # used.lang
+  lapply(names(mult[73:89]), function(x) # used.ml_
+      mult %>% 
+        group_by(lang = get(y), ml = get(x)) %>% 
+        summarise(cnt=n()) %>% 
+      mutate(`%` = cnt / sum(cnt) * 100)
+    )%>% lapply(., function(w) filter(w, ml != "" & lang != ""))
+)  %>% 
+  do.call(bind_rows, .) %>% 
+  arrange(lang, desc(cnt)) %>% 
+  top_n(4) %>% 
+  as.data.frame() %>% 
+  mutate_if(is.factor, as.character) %>% 
+  slice(., -c(4,5))
+
+# creating a node data frame: it lists every entities involved in the flow
+nodes=data.frame(name=c(as.character(temp$lang), 
+                        as.character(temp$ml)) %>% unique())
+
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.
+# So we need to reformat it.
+temp$IDsource=match(temp$lang, nodes$name)-1 
+temp$IDtarget=match(temp$ml, nodes$name)-1
+
+# Make the Network
+sankeyNetwork(Links = temp, Nodes = nodes,
+              Source = "IDsource", Target = "IDtarget", fontSize = 15,
+              Value = "cnt", NodeID = "name", nodeWidth = 20)
+
+```
+
