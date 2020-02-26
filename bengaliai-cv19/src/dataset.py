@@ -37,7 +37,7 @@ class BengaliDatasetTrain:
     def __getitem__(self, item):
         image = joblib.load(f"../input/image_pickles/{self.image_ids[item]}.pkl")
         image = image.reshape(137, 236).astype(float)
-        image = image.fromarray(image).convert("RGB")
+        image = Image.fromarray(image).convert("RGB")
         image = self.aug(image=np.array(image))["image"]
         image = np.transpose(image, (2, 0, 1)).astype(np.float32)
         return{
