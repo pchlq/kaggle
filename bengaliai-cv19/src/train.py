@@ -25,9 +25,10 @@ BASE_MODEL = os.environ.get("BASE_MODEL")
 def loss_fn(outputs, targets):
     o1, o2, o3 = outputs
     t1, t2, t3 = targets
-    l1 = nn.CrossEntropyLoss()(o1, t1)
-    l2 = nn.CrossEntropyLoss()(o2, t2)
-    l3 = nn.CrossEntropyLoss()(o3, t3)
+    l1 = nn.CrossEntropyLoss()(o1, t1) # grapheme_root
+    l2 = nn.CrossEntropyLoss()(o2, t2) # vowel_diacritic
+    l3 = nn.CrossEntropyLoss()(o3, t3) # consonant_diacritic
+    
     return (l1 + l2 + l3) / 3
     
 
