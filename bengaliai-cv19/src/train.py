@@ -55,25 +55,26 @@ def train(dataset, data_loader, model, optimizer):
         optimizer.step()
 
 def evaluate(dataset, data_loader, model):
-    model.eval()
-    final_loss = 0
-    counter = 0
-    for bi, d in tqdm(enumerate(data_loader), total=int(len(dataset) / data_loader.batch_size)):
-        counter += 1
-        image = d["image"]
-        grapheme_root = d["grapheme_root"]
-        vowel_diacritic = d["vowel_diacritic"]
-        consonant_diacritic = d["consonant_diacritic"]
-        
-        image = image.to(DEVICE, dtype=torch.float)
-        grapheme_root = grapheme_root.to(DEVICE, dtype=torch.long)
-        vowel_diacritic = vowel_diacritic.to(DEVICE, dtype=torch.long)
-        consonant_diacritic = consonant_diacritic.to(DEVICE, dtype=torch.long)
+    with torch.no_grad():
+        model.eval()
+        final_loss = 0
+        counter = 0
+        for bi, d in tqdm(enumerate(data_loader), total=int(len(dataset) / data_loader.batch_size)):
+            counter += 1
+            image = d["image"]
+            grapheme_root = d["grapheme_root"]
+            vowel_diacritic = d["vowel_diacritic"]
+            consonant_diacritic = d["consonant_diacritic"]
+            
+            image = image.to(DEVICE, dtype=torch.float)
+            grapheme_root = grapheme_root.to(DEVICE, dtype=torch.long)
+            vowel_diacritic = vowel_diacritic.to(DEVICE, dtype=torch.long)
+            consonant_diacritic = consonant_diacritic.to(DEVICE, dtype=torch.long)
 
-        outputs = model(image)
-        targets = (grapheme_root, vowel_diacritic, consonant_diacritic)
-        loss = loss_fn(outputs, targets)
-        final_loss += loss
+            outputs = model(image)
+            targets = (grapheme_root, vowel_diacritic, consonant_diacritic)
+            loss = loss_fn(outputs, targets)
+            final_loss += loss
     return final_loss / counter
 
 
