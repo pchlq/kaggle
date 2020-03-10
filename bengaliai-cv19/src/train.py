@@ -25,9 +25,9 @@ BASE_MODEL = os.environ.get("BASE_MODEL")
 def loss_fn(outputs, targets):
     o1, o2, o3 = outputs
     t1, t2, t3 = targets
-    l1 = nn.CrossEntropyLoss()(o1, t1) # grapheme_root
-    l2 = nn.CrossEntropyLoss()(o2, t2) # vowel_diacritic
-    l3 = nn.CrossEntropyLoss()(o3, t3) # consonant_diacritic
+    l1 = nn.CrossEntropyLoss()(o1, t1) # grapheme_root 0.9
+    l2 = nn.CrossEntropyLoss()(o2, t2) # vowel_diacritic 0.06
+    l3 = nn.CrossEntropyLoss()(o3, t3) # consonant_diacritic 0.04
     
     return (l1 + l2 + l3) / 3
     
@@ -95,7 +95,7 @@ def main():
         dataset=train_dataset,
         batch_size=TRAIN_BATCH_SIZE,
         shuffle=True,
-        num_workers=4
+        num_workers=5
     )
 
     # for validation set
@@ -111,19 +111,25 @@ def main():
         dataset=valid_dataset,
         batch_size=TEST_BATCH_SIZE,
         shuffle=False,
-        num_workers=4
+        num_workers=5
     )
 
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", 
-                                            patience=5, factor=0.3, verbose=True)
+                                            patience=5, factor=0.3, min_lr=1e-10, verbose=True)
 
-    if torch.cuda.device_count() > 1:
-        model = nn.DataParallel(model)
+    # early_stopping = EarlyStopping(patience=5, verbose=True)
+
+    # best_score = -1
+    # print("FOLD : ", VALIDATION_FOLDS[0] )
+
+    # if torch.cuda.device_count() > 1:
+    #     model = nn.DataParallel(model)
 
     for epoch in range(EPOCHS):
         train(train_dataset, train_loader, model, optimizer)
         val_score = evaluate(valid_dataset, valid_loader, model)
+        print(f"Eval -> epoch: {epoch}, final loss: {val_score}")
         scheduler.step(val_score)
         torch.save(model.state_dict(), f"{BASE_MODEL}_fold{VALIDATION_FOLDS[0]}.bin")
 
