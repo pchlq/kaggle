@@ -142,6 +142,7 @@ models/
 *.zip
 *.tem
 *.h5
+*.bin
 .DS_Store
 catboost_info/*
 catboost_info/**

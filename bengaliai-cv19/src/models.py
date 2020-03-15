@@ -23,3 +23,24 @@ class ResNet34(nn.Module):
         l2 = self.l2(x)
         return l0, l1, l2
 
+
+class ResNet50(nn.Module):
+    def __init__(self, pretrained):
+        super(ResNet50, self).__init__()
+        if pretrained:
+            self.model = pretrainedmodels.__dict__["resnet50"](pretrained="imagenet")
+        else:
+            self.model = pretrainedmodels.__dict__["resnet50"](pretrained=None)
+
+        self.l0 = nn.Linear(2048, 168)
+        self.l1 = nn.Linear(2048, 11)
+        self.l2 = nn.Linear(2048, 7)
+
+    def forward(self, x):
+        bs, _, _, _ = x.shape
+        x = self.model.features(x)
+        x = F.adaptive_avg_pool2d(x, 1).reshape(bs, -1)
+        l0 = self.l0(x)
+        l1 = self.l1(x)
+        l2 = self.l2(x)
+        return l0, l1, l2

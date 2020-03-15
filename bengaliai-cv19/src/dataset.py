@@ -131,8 +131,7 @@ class BengaliDatasetTrain:
                                                 p=0.9),
                 albumentations.OneOf([
                     GridMask(num_grid=(3, 7), rotate=13, mode=0),
-                    GridMask(num_grid=3, mode=1),
-                    GridMask(num_grid=3, mode=2), 
+                    albumentations.augmentations.transforms.Cutout() 
                 ], p=1),
                 albumentations.Normalize(mean, std, always_apply=True)
             ])
